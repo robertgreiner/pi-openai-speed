@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import extension, { parseSpeed, supported, wireTier } from "./index.ts";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import extension, { parseSpeed, readDefaultSpeed, supported, wireTier } from "./index.ts";
 import { observe, type Measurement } from "./metrics.ts";
 
 const astra = { provider: "openai-codex", id: "gpt-6-astra", api: "openai-codex-responses" };
-function harness(flag?: string) {
+function harness(flag?: string, defaultsPath = join(tmpdir(), `pi-no-default-${process.pid}`, "absent.json")) {
   const handlers = new Map<string, Function>();
   const commands = new Map<string, any>();
   const entries: any[] = [];
@@ -29,7 +32,7 @@ function harness(flag?: string) {
     },
     sessionManager: { getBranch: () => entries },
   };
-  extension(pi as any);
+  extension(pi as any, defaultsPath);
   const call = (name: string, event: any = {}) => handlers.get(name)!(event, ctx);
   return { ctx, entries, notifications, emitted, call, command: commands.get("speed").handler, status: () => status, footer: () => footer };
 }
@@ -98,6 +101,52 @@ test("TUI uses an inline footer only for supported models and restores it on shu
   assert.equal(typeof h.footer(), "function");
   h.call("session_shutdown");
   assert.equal(h.footer(), undefined);
+});
+
+test("personal default applies to new sessions but saved choices win across reloads", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-speed-default-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, "openai-speed.json");
+  writeFileSync(file, JSON.stringify({ defaultSpeed: "ultrafast" }));
+  const h = harness(undefined, file); h.call("session_start", { reason: "startup" });
+  const payload = { model: astra.id, reasoning: { effort: "xhigh" } };
+  assert.deepEqual(h.call("before_provider_request", { payload }), { ...payload, service_tier: "ultrafast" });
+  assert.equal(h.entries.length, 0);
+  await h.command("normal", h.ctx);
+  writeFileSync(file, JSON.stringify({ defaultSpeed: "fast" }));
+  h.call("session_start", { reason: "reload" });
+  assert.equal(h.call("before_provider_request", { payload }).service_tier, "default");
+  h.entries.length = 0; h.call("session_tree");
+  assert.equal(h.call("before_provider_request", { payload }).service_tier, "priority");
+  h.ctx.model.id = "other-model";
+  assert.equal(h.call("before_provider_request", { payload }), undefined);
+});
+
+test("explicit startup flag wins over the personal default; invalid flags fail closed", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-speed-default-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, "openai-speed.json");
+  writeFileSync(file, JSON.stringify({ defaultSpeed: "ultrafast" }));
+  const payload = { model: astra.id };
+  const h = harness("normal", file); h.call("session_start", { reason: "startup" });
+  assert.equal(h.call("before_provider_request", { payload }).service_tier, "default");
+  const invalid = harness("bogus", file); invalid.call("session_start", { reason: "startup" });
+  assert.equal(invalid.call("before_provider_request", { payload }), undefined);
+});
+
+test("missing or malformed defaults never silently opt into a faster tier", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-speed-default-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, "openai-speed.json");
+  assert.equal(readDefaultSpeed(file), undefined);
+  for (const value of ["{", "null", "[]", '{"defaultSpeed":"bogus"}', '{"defaultSpeed":null}']) {
+    writeFileSync(file, value);
+    const h = harness(undefined, file); h.call("session_start", { reason: "startup" });
+    assert.equal(h.call("before_provider_request", { payload: { model: astra.id } }), undefined);
+    assert.match(h.notifications[0], /no default tier override/);
+  }
+  writeFileSync(file, "{}");
+  assert.equal(readDefaultSpeed(file), undefined);
 });
 
 function measurement(): Measurement {

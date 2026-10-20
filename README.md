@@ -40,7 +40,8 @@ Select GPT-6 Astra through `/model`, then:
 - `pi --speed ultrafast` opts in at startup (select an Astra model as usual).
 
 Thinking effort is never changed. Selection is stored on the session branch and
-survives reload/resume; new sessions have **no override** unless `--speed` is used.
+survives reload/resume; new sessions have **no override** unless `--speed` or the
+optional personal default below is configured.
 Switching to another model makes the setting inactive. Commands refuse to change
 speed while a turn is running. The selected mode appears beside the model and
 thinking level, without an extra speed status row:
@@ -57,6 +58,39 @@ directory, git branch, session name, token/cache/cost/context stats, and other
 extensions' status messages. It restores Pi's stock footer when inactive. Like
 other custom footers, it cannot compose with a second footer replacement; the
 last extension to set a footer wins. This affects display only, never routing.
+
+## Personal speed default
+
+To opt new sessions into a tier without a CLI flag, create
+`~/.pi/agent/openai-speed.json` (or that file under `PI_CODING_AGENT_DIR`):
+
+```json
+{ "defaultSpeed": "ultrafast" }
+```
+
+Valid values are `normal`, `fast`, and `ultrafast`. Remove `defaultSpeed` or the
+file to restore no override. This is a deliberate cost/allowance opt-in; the
+package does not create this file. `/reload` rereads it.
+
+Precedence: explicit startup `--speed` → saved session-branch choice → personal
+default → no override. A subsequent `/speed` choice persists on that branch, so
+changing the personal default does not overwrite it. Malformed defaults warn and
+apply no default override. This file never changes models or thinking effort.
+
+For a matching startup model and effort, merge these into Pi's `settings.json`,
+leaving other settings intact:
+
+```json
+{
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-6-astra",
+  "defaultThinkingLevel": "xhigh"
+}
+```
+
+Existing per-model thinking settings can override the global thinking default;
+set `modelThinkingLevels["openai-codex/gpt-6-astra"]` to `"xhigh"` if necessary.
+Resuming an existing session retains its model/thinking and explicit speed choice.
 
 ## Token throughput display
 

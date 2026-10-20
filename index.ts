@@ -1,5 +1,7 @@
 /** Astra service-tier controls for Pi 1.3.0. See README.md for caveats and usage. */
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { observe, record, type Measurement, type Speed, type SpeedSample } from "./metrics.ts";
 import { createSpeedFooter } from "./footer.ts";
 
@@ -22,8 +24,25 @@ export function wireTier(speed: Speed, provider: string): string {
   return speed === "normal" ? "default" : speed === "fast" && provider === "openai-codex" ? "priority" : speed;
 }
 
-export default function openaiSpeed(pi: ExtensionAPI) {
+export function readDefaultSpeed(path: string): Speed | undefined {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  const config = record(JSON.parse(text));
+  if (!config) throw new Error("Speed defaults must be an object");
+  if (config.defaultSpeed === undefined) return undefined;
+  const speed = parseSpeed(config.defaultSpeed);
+  if (!speed) throw new Error("Invalid defaultSpeed");
+  return speed;
+}
+
+export default function openaiSpeed(pi: ExtensionAPI, defaultsPath = join(getAgentDir(), "openai-speed.json")) {
   let speed: Speed = "normal";
+  let defaultSpeed: Speed | undefined;
   let explicitlySelected = false;
   let measurement: Measurement | undefined;
   let lastSample: SpeedSample | undefined;
@@ -49,8 +68,14 @@ export default function openaiSpeed(pi: ExtensionAPI) {
   }
 
   function restore(ctx: ExtensionContext) {
-    speed = "normal";
-    explicitlySelected = false;
+    defaultSpeed = undefined;
+    try {
+      defaultSpeed = readDefaultSpeed(defaultsPath);
+    } catch {
+      ctx.ui.notify("Cannot read openai-speed.json or invalid defaultSpeed; no default tier override applied.", "warning");
+    }
+    speed = defaultSpeed ?? "normal";
+    explicitlySelected = defaultSpeed !== undefined;
     measurement = undefined;
     lastSample = undefined;
     for (const entry of ctx.sessionManager.getBranch()) {
@@ -109,6 +134,7 @@ export default function openaiSpeed(pi: ExtensionAPI) {
         const sample = lastSample;
         const lines = [
           `Astra speed: ${explicitlySelected ? speed : "normal (no override)"}${supported(ctx.model) ? "" : " — inactive for this model"}.`,
+          `Configured default: ${defaultSpeed ?? "none"}. Saved session choices and --speed override it.`,
           "Thinking is unchanged. Faster tiers may consume more allowance; Pi's dollar estimate is not tier-aware here.",
         ];
         if (sample) {
