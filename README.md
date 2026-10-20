@@ -65,28 +65,49 @@ default and never changes models, tiers, thinking effort, or request payloads.
 With the Astra speed footer active, a completed response looks like:
 
 ```text
-gpt-6-astra • xhigh • ultrafast • ↓ 173.3 tok/s
+gpt-6-astra • xhigh • ultrafast • ↓ 111.3 tok/s
 ```
+
+Since v0.3.0, the footer uses **OpenCode-style turn throughput**:
+
+```text
+sum(output tokens, including reasoning) / sum(request durations in seconds)
+```
+
+It aggregates counts and durations before dividing, not the average of individual
+request rates. Each duration runs from Pi's `before_provider_request` hook to the
+final assistant message, including startup, queueing, and reasoning. Time between
+requests (tools, approvals, and retry backoff) is excluded. This is provider-active
+throughput, **not** wall-clock task speed. Pi's boundaries differ slightly from
+OpenCode's, so this is the same style of metric, not bit-for-bit timing parity.
 
 Without that footer (or on a narrow terminal), it uses Pi's normal extension
 status row. It does **not** replace another extension's footer. Custom footers
 must render Pi's extension statuses to show it.
 
-- `/tokens` or `/tokens status` explains the latest response's throughput and timing.
-- `/tokens off` hides the display; `/tokens on` enables the next measurement.
+- `/tokens` or `/tokens status` shows the turn aggregate and the latest request's
+  full-request rate, visible-text streaming rate (when measurable), and latency.
+- `/tokens off` hides the display; `/tokens on` enables the next turn. Change the
+  toggle while idle so a partial turn cannot be mistaken for a complete measurement.
 - The toggle persists on the session branch. Measurements are in memory only and
-  reset on reload, branch navigation, model change, or the next request.
-- During a request it shows `waiting…`, `thinking…`, or `streaming…`. The numerical
-  rate appears at completion, when the provider supplies final token counts.
+  reset on reload, branch navigation, idle model change, or the next turn.
+- A turn includes model/tool steps and automatic continuations until Pi emits
+  `agent_settled`. Model changes during that turn do not reset the aggregate.
+- During a request it shows `waiting…`, `thinking…`, or `streaming…`. After each
+  completed request, the footer shows the turn-so-far rate using final usage counts.
   Stream chunks are **not** counted as tokens.
-- `tok/s` means approximate **visible-text streaming throughput**, excluding
-  startup and reasoning, using Pi's reported output-minus-reasoning tokens.
-- `tok/s total` is the fallback: **all output tokens / total request time**, including
-  startup and reasoning. This is used for tool calls, length-limited responses,
-  single-chunk output, or missing reasoning breakdowns. These two rates are not
-  interchangeable. Errors and aborts are not reported as successful measurements.
-- Every assistant request is measured separately; time executing tools between
-  requests is not included. A retry resets the measurement.
+- `tok/s` always means the same turn-wide metric, including tool-call output and
+  reasoning. Pi's output count already includes reasoning; it is not added twice.
+  A separate reasoning breakdown is not required. Zero-output successful requests
+  still contribute their duration.
+- A retry resets only that attempt's clock, preserving earlier successful steps.
+  Failed attempts are excluded; errors and aborts hide the rate. A successful step
+  without valid timing or usage suppresses the turn rate rather than showing a
+  misleading average of only the measurable subset.
+
+The older **text-burst rate** is still available in `/tokens status` and
+`/speed status`, but no longer drives the footer. Short replies and buffered
+chunks can make that rate look very high because it omits first-text latency.
 
 No tokenization guesses or extra API requests are made. Numeric metadata plus
 provider/model names are emitted locally as `token-speed:sample`; no prompt,
@@ -139,7 +160,7 @@ No prompts, response text, account identifiers, headers, or credentials are
 retained by the extension. The last sample stays in memory, and is optionally
 published on Pi's `openai-speed:sample` extension event for a benchmark observer.
 
-Text throughput is approximately:
+The diagnostic **text-burst** throughput (not the footer's turn rate) is approximately:
 
 ```text
 (output_tokens - output_tokens_details.reasoning_tokens)
@@ -198,11 +219,17 @@ Six clean requests, two per tier, 60 lines each, low reasoning, no cached input.
 All completed; 5,916 total input/output tokens, before tier usage multipliers.
 Medians:
 
-| Requested mode | Visible text tok/s | Versus normal | First text | Total time |
+| Requested mode | Full-request output tok/s | Visible text tok/s | First text | Total time |
 | --- | ---: | ---: | ---: | ---: |
-| normal | 28.1 | 1.00x | 3.94 s | 35.28 s |
-| fast | 36.5 | 1.30x | 3.93 s | 27.85 s |
-| ultrafast | 173.3 | 6.17x | 3.13 s | 8.29 s |
+| normal | 25.5 | 28.1 | 3.94 s | 35.28 s |
+| fast | 31.8 | 36.5 | 3.93 s | 27.85 s |
+| ultrafast | 111.3 | 173.3 | 3.13 s | 8.29 s |
+
+Each benchmark turn contains one request. The full-request column is the median
+of each request's output tokens (including reasoning) divided by its elapsed time,
+recomputed from the same saved samples without new model calls. It corresponds to
+the v0.3.0 footer's metric; the visible-text column remains a separate diagnostic.
+This was not a live OpenCode benchmark.
 
 All six reported raw `service_tier: "default"`. This is a small local diagnostic,
 not a performance guarantee or authoritative billing-tier confirmation. An
@@ -222,6 +249,10 @@ credentials, and session history are not included in this repository.
 
 The last two are issue reports, not official guarantees. The local tests verify
 request payloads, successful completion, and measured throughput independently.
+
+The turn-rate design follows [OpenCode v2.0.32's `turnTokensPerSecond`](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/tui/src/routes/session/rows.ts#L442).
+Our tests reproduce its multi-request fixture and additionally cover weighted
+aggregation, retries, settlement boundaries, missing samples, and zero output.
 
 ## License
 

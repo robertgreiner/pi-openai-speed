@@ -1,6 +1,6 @@
 {
   "name": "@robertgreiner/pi-openai-speed",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Normal, Fast, and Ultrafast controls for GPT-6 Astra in Pi, with token throughput measurement.",
   "type": "module",
   "license": "MIT",
