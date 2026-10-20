@@ -1,6 +1,6 @@
 {
   "name": "@robertgreiner/pi-openai-speed",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Normal, Fast, and Ultrafast controls for GPT-6 Astra in Pi, with token throughput measurement.",
   "type": "module",
   "license": "MIT",
@@ -16,18 +16,20 @@
     "node": ">=22.19.0"
   },
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": ["./index.ts", "./token-speed.ts"]
   },
-  "files": ["index.ts", "metrics.ts", "footer.ts", "benchmark.py", "benchmark-probe.ts", "README.md", "LICENSE"],
+  "files": ["index.ts", "metrics.ts", "footer.ts", "token-speed.ts", "benchmark.py", "benchmark-probe.ts", "README.md", "LICENSE"],
   "scripts": {
-    "test": "node --test test.ts footer.test.ts",
+    "test": "node --test test.ts footer.test.ts token-speed.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
+    "@earendil-works/pi-ai": "1.3.0",
     "@earendil-works/pi-coding-agent": "1.3.0",
     "@earendil-works/pi-tui": "1.3.0",
     "@types/node": "26.6.5",

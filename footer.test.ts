@@ -85,6 +85,23 @@ test("other extensions retain their status row, but speed never duplicates it", 
   assert.equal(h.plain(160)[2], "first last status");
 });
 
+test("token throughput shares the model row when it fits and falls back without duplication", () => {
+  const h = harness();
+  h.statuses.set("token-speed", "↓ 173.3 tok/s");
+  h.statuses.set("other", "other status");
+  const wide = h.plain(160);
+  assert.match(wide[1], /gpt-6-astra • xhigh • ultrafast • ↓ 173.3 tok\/s$/);
+  assert.equal(wide[2], "other status");
+  const narrow = h.plain(35);
+  assert.match(narrow[1], /gpt-6-astra • xhigh • ultrafast$/);
+  assert.equal(narrow[2], "other status ↓ 173.3 tok/s");
+  for (let width = 1; width <= 180; width++) {
+    for (const line of h.footer.render(width)) assert.ok(visibleWidth(line) <= width);
+  }
+  h.statuses.delete("token-speed");
+  assert.doesNotMatch(h.plain(160).join("\n"), /tok\/s/);
+});
+
 test("cache avoids rescanning history each frame and branch watcher is disposed", () => {
   const h = harness(); h.footer.render(160); h.footer.render(80);
   assert.equal(h.counters().reads, 1);

@@ -102,12 +102,16 @@ export function createSpeedFooter(
 
       const thinking = model?.reasoning ? ` • ${pi.getThinkingLevel() === "off" ? "thinking off" : pi.getThinkingLevel()}` : "";
       let right = `${model?.id ?? "no-model"}${thinking} • ${getSpeed()}`;
+      const statuses = data.getExtensionStatuses();
+      const tokenStatus = oneLine(statuses.get("token-speed") ?? "");
+      const inlineTokens = tokenStatus.length > 0 && visibleWidth(`${right} • ${tokenStatus}`) <= width;
+      if (inlineTokens) right += ` • ${tokenStatus}`;
       const provider = model && data.getAvailableProviderCount() > 1 ? `(${model.provider}) ` : "";
       if (visibleWidth(left) + 2 + visibleWidth(provider + right) <= width) right = provider + right;
       const lines = [truncateToWidth(dim(oneLine(location)), width, "…"), alignStats(left, dim(right), width)];
 
-      const otherStatuses = [...data.getExtensionStatuses()]
-        .filter(([key]) => key !== "openai-speed")
+      const otherStatuses = [...statuses]
+        .filter(([key]) => key !== "openai-speed" && !(inlineTokens && key === "token-speed"))
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([, text]) => oneLine(text));
       if (otherStatuses.length) lines.push(truncateToWidth(otherStatuses.join(" "), width, "…"));
