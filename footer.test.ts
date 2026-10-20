@@ -11,6 +11,7 @@ function harness() {
   let reads = 0;
   let disposals = 0;
   let renders = 0;
+  let dimColor = 244;
   let onBranch: (() => void) | undefined;
   const entries: any[] = [
     { type: "message", message: { role: "assistant", usage: { input: 100, output: 200, cacheRead: 900, cacheWrite: 0, cost: { total: 0.25 } } } },
@@ -41,7 +42,7 @@ function harness() {
     getExtensionStatuses: () => statuses,
     onBranchChange: (fn) => { onBranch = fn; return () => { disposals++; }; },
   };
-  const theme = { fg: (_color: string, text: string) => `\x1b[38;5;244m${text}\x1b[39m` } as Theme;
+  const theme = { fg: (_color: string, text: string) => `\x1b[38;5;${dimColor}m${text}\x1b[39m` } as Theme;
   const footer = createSpeedFooter(ctx, pi, { requestRender: () => { renders++; } }, theme, data, () => "ultrafast");
   return {
     footer, statuses, entries, ctx,
@@ -49,6 +50,7 @@ function harness() {
     moveLeaf: () => { leaf += "x"; },
     thinking: () => { thinking = "high"; },
     disableAuto: () => { auto = false; },
+    dimColor: (color: number) => { dimColor = color; },
     branch: () => onBranch?.(),
     counters: () => ({ reads, disposals, renders }),
   };
@@ -78,11 +80,14 @@ test("all terminal widths are bounded, including ANSI styles and wide Unicode", 
   assert.match(h.plain(35)[1], /gpt-6-astra • xhigh • ultrafast$/);
 });
 
-test("other extensions retain their status row, but speed never duplicates it", () => {
+test("other extensions share the location row when they fit, without duplicating speed", () => {
   const h = harness();
   h.statuses.set("z", "last\nstatus"); h.statuses.set("a", "first");
   h.statuses.set("openai-speed", "speed:ultrafast (requested)");
-  assert.equal(h.plain(160)[2], "first last status");
+  const lines = h.plain(160);
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /世界\/project \(main\) • session +first • last status$/);
+  assert.doesNotMatch(lines.join("\n"), /speed:|requested/);
 });
 
 test("token throughput shares the model row when it fits and falls back without duplication", () => {
@@ -91,7 +96,8 @@ test("token throughput shares the model row when it fits and falls back without 
   h.statuses.set("other", "other status");
   const wide = h.plain(160);
   assert.match(wide[1], /gpt-6-astra • xhigh • ultrafast • ↓ 173.3 tok\/s$/);
-  assert.equal(wide[2], "other status");
+  assert.equal(wide.length, 2);
+  assert.match(wide[0], /other status$/);
   const narrow = h.plain(35);
   assert.match(narrow[1], /gpt-6-astra • xhigh • ultrafast$/);
   assert.equal(narrow[2], "other status ↓ 173.3 tok/s");
@@ -100,6 +106,43 @@ test("token throughput shares the model row when it fits and falls back without 
   }
   h.statuses.delete("token-speed");
   assert.doesNotMatch(h.plain(160).join("\n"), /tok\/s/);
+});
+
+test("status packing respects the exact width boundary and preserves both primary rows", () => {
+  const h = harness(), location = h.plain(160)[0];
+  const status = "workflow:ready • 4 calls • 173ms";
+  h.statuses.set("workflow", status);
+  const needed = visibleWidth(location) + 2 + visibleWidth(status);
+  const narrow = h.plain(needed - 1), fits = h.plain(needed);
+  assert.equal(narrow.length, 3); assert.equal(narrow[0], location); assert.equal(narrow[2], status);
+  assert.equal(fits.length, 2); assert.equal(fits[0], `${location}  ${status}`);
+  h.statuses.clear();
+  assert.equal(fits[1], h.plain(needed)[1]);
+});
+
+test("inline and overflow statuses are dim and recolor with the active theme", () => {
+  const h = harness(); h.statuses.set("workflow", "workflow:ready");
+  assert.ok(h.footer.render(160)[0].includes("\x1b[38;5;244mworkflow:ready\x1b[39m"));
+  assert.ok(h.footer.render(35)[2].startsWith("\x1b[38;5;244m"));
+  h.dimColor(250); h.footer.invalidate();
+  assert.ok(h.footer.render(160)[0].includes("\x1b[38;5;250mworkflow:ready\x1b[39m"));
+  assert.ok(h.footer.render(35)[2].startsWith("\x1b[38;5;250m"));
+  assert.equal(h.statuses.get("workflow"), "workflow:ready");
+  h.statuses.set("warning", "\x1b[31mALERT\x1b[39m");
+  assert.ok(h.footer.render(160)[0].includes("\x1b[31mALERT\x1b[39m"));
+});
+
+test("blank statuses add no row and oversized statuses do not displace shorter ones", () => {
+  const h = harness();
+  h.statuses.set("blank", " \n\t "); h.statuses.set("ansi-only", "\x1b[31m\x1b[39m");
+  assert.equal(h.plain(160).length, 2);
+  h.statuses.set("a", "long-".repeat(50)); h.statuses.set("b", "ready");
+  const lines = h.plain(80);
+  assert.equal(lines.length, 3); assert.match(lines[0], /ready$/); assert.match(lines[2], /^long-/);
+  assert.equal(lines.join("\n").match(/ready/g)?.length, 1);
+  for (let width = 1; width <= 200; width++) {
+    for (const line of h.footer.render(width)) assert.ok(visibleWidth(line) <= width);
+  }
 });
 
 test("cache avoids rescanning history each frame and branch watcher is disposed", () => {

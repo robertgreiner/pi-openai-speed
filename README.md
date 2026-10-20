@@ -46,6 +46,11 @@ token/cache/cost/context stats, and other extensions' statuses. It restores the
 stock footer when inactive. Like any footer replacement, it cannot compose with a
 second footer replacement: the last setter wins. Display never changes routing.
 
+Extension statuses use the same muted footer color and share spare space on the
+working-directory row. The model/effort/speed/throughput row stays unchanged.
+Only statuses that do not fit use an extra row on narrow terminals; explicit
+warning/error colors are preserved. Colors follow the active theme.
+
 ## Token throughput is now a separate package
 
 Starting with **v0.5.0**, `/tokens` and the provider-neutral throughput observer live

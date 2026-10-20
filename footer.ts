@@ -108,13 +108,27 @@ export function createSpeedFooter(
       if (inlineTokens) right += ` • ${tokenStatus}`;
       const provider = model && data.getAvailableProviderCount() > 1 ? `(${model.provider}) ` : "";
       if (visibleWidth(left) + 2 + visibleWidth(provider + right) <= width) right = provider + right;
-      const lines = [truncateToWidth(dim(oneLine(location)), width, "…"), alignStats(left, dim(right), width)];
-
       const otherStatuses = [...statuses]
         .filter(([key]) => key !== "openai-speed" && !(inlineTokens && key === "token-speed"))
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([, text]) => oneLine(text));
-      if (otherStatuses.length) lines.push(truncateToWidth(otherStatuses.join(" "), width, "…"));
+        .map(([, text]) => oneLine(text))
+        .filter((text) => visibleWidth(text) > 0);
+      // Reuse spare space beside the location, without crowding model/usage stats
+      // or truncating the location just to accommodate an optional status.
+      const locationText = oneLine(location);
+      const inlineStatuses: string[] = [], overflowStatuses: string[] = [];
+      for (const text of otherStatuses) {
+        const combined = [...inlineStatuses, text].join(" • ");
+        if (visibleWidth(locationText) + 2 + visibleWidth(combined) <= width) inlineStatuses.push(text);
+        else overflowStatuses.push(text);
+      }
+      const locationLine = inlineStatuses.length
+        ? alignStats(dim(locationText), dim(inlineStatuses.join(" • ")), width)
+        : truncateToWidth(dim(locationText), width, "…");
+      const lines = [locationLine, alignStats(left, dim(right), width)];
+      // Apply the current theme at render time, not when the status was stored.
+      // Explicit warning/error colors supplied by another extension remain intact.
+      if (overflowStatuses.length) lines.push(truncateToWidth(dim(overflowStatuses.join(" ")), width, "…"));
       return lines;
     },
   };

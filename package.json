@@ -1,6 +1,6 @@
 {
   "name": "@robertgreiner/pi-openai-speed",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Normal, Fast, and Ultrafast service-tier controls for GPT-6 Astra in Pi.",
   "type": "module",
   "license": "MIT",
